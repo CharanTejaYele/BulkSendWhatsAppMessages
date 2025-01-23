@@ -15,39 +15,14 @@ const contacts = [];
 let sent = 0;
 let clients = [];
 let sendType = "";
+let messageText = getMessage();
+let messageObj;
 
 // Initialize readline interface
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
-let messageText = "";
-
-// Main CLI Menu
-const selectOption = () => {
-  rl.question(
-    "Select an option: \n1. Send Message Without Media\n2. Send Message With Media\n3. Select Message from Chat\nYour choice: ",
-    (option) => {
-      if (option === "1") {
-        sendType = "MessageFromJSFileWithoutMedia";
-        messageText = getMessage();
-      } else if (option === "2") {
-        sendType = "MessageFromJSFileWithMedia";
-        messageText = getMessage();
-      } else if (option === "3") {
-        sendType = "selectMessageFromChat";
-        messageText = createMessageFromChat()
-      } else {
-        console.log("Invalid option. Exiting.");
-        rl.close();
-        return;
-      }
-
-      console.log(`You chose: ${sendType}`);
-      rl.close(); // Close the CLI prompt after the selection
-    }
-  );
-};
 
 // Parse the CSV file to extract contacts
 const parseCSVAndInitializeClients = () => {
@@ -74,6 +49,36 @@ const parseCSVAndInitializeClients = () => {
     });
 };
 
+// Main CLI Menu
+const selectOption = async () => {
+  return new Promise(async (resolve) => {
+    rl.question(
+      "Select an option: \n1. Send Message Without Media\n2. Send Message With Media\n3. Select Message from Chat\nYour choice: ",
+      async (option) => {
+        if (option === "1") {
+          messageObj = createMessageWithoutMedia();
+          sendType = "Message Without Media";
+        } else if (option === "2") {
+          messageObj = createMessageWithMedia();
+          sendType = "Message With Media";
+        } else if (option === "3") {
+          await createMessageFromChat(); // Await the function to ensure it's completed
+          sendType = "Message From Chat";
+        } else {
+          console.log("Invalid option. Exiting.");
+          rl.close();
+          resolve(); // Exit if the option is invalid
+          return;
+        }
+
+        console.log(`You chose: ${sendType}`);
+        rl.close(); // Close the CLI prompt after the selection
+        resolve(); // Continue the process after the option is selected
+      }
+    );
+  });
+};
+
 // Function to initialize clients
 const initializeClients = async (contactChunks) => {
   for (let i = 0; i < Math.min(MAX_CLIENTS, contactChunks.length); i++) {
@@ -81,8 +86,9 @@ const initializeClients = async (contactChunks) => {
     clients.push({ client, id: i + 1, busy: false });
   }
 
-  console.log("All clients are ready. Starting to assign tasks...");
+  console.log("All clients are ready. ");
 
+  await selectOption();
   assignTasksParallel(contactChunks);
 
   // Start periodic memory cleanup
@@ -116,9 +122,6 @@ const createClient = (clientId) => {
 // Function to assign tasks to clients in parallel
 const assignTasksParallel = (contactChunks) => {
   let pendingChunks = [...contactChunks];
-
-    // Start the process by showing the menu
-    selectOption();
 
   const processNextChunk = (clientId) => {
     if (pendingChunks.length === 0) {
@@ -158,32 +161,17 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
   const sendMessageToContact = (index) => {
     if (index >= contacts.length) {
       console.log(`Client ${clientId}: All messages sent for this batch.`);
-
-      // Restart the client after completing the chunk
-      restartClient(clientId, () => {
-        onComplete();
-      });
-
+      onComplete();
       return;
     }
 
     const contact = contacts[index];
     const phoneNumber = contact.phone;
     const chatId = `${phoneNumber}@c.us`;
-
-    // Select message based on sendType
-    let messageObj;
-    if (sendType === "MessageFromJSFileWithoutMedia") {
-      messageObj = createMessageWithoutMedia(contact, chatId);
-      console.log(messageObj);
-    } else if (sendType === "MessageFromJSFileWithMedia") {
-      messageObj = createMessageWithMedia(contact, chatId);
-    } else if (sendType === "selectMessageFromChat") {
-      messageObj = createMessageFromChat(contact, chatId);
-    }
+    console.log(...Object.values(messageObj));
 
     client
-      .sendMessage(...Object.values(messageObj))
+      .sendMessage(chatId, ...Object.values(messageObj))
       .then(() => {
         sent++;
         console.log(
@@ -210,28 +198,58 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
 };
 
 // Function to create a message without media (Option 1)
-const createMessageWithoutMedia = (contact, chatId) => {
-  return { chatId, messageText };
+const createMessageWithoutMedia = () => {
+  return { body: messageText };
 };
 
 // Function to create a message with media (Option 2)
-const createMessageWithMedia = (contact, chatId) => {
+const createMessageWithMedia = () => {
   const imagePath = getImage();
   const media = new MessageMedia(
     "image/png",
     fs.readFileSync(imagePath).toString("base64"),
     "image.png"
   );
-  return { chatId, media, options: { caption: messageText } };
+  return { media, options: { caption: messageText } };
 };
 
-// Function to create a message from existing chat (Option 3)
-const createMessageFromChat = async (contact, chatId) => {
-  const message = await getLastMessageFromChat();
-  return { chatId, message, options: {} };
+// Function to create a message from an existing chat (Option 3)
+const createMessageFromChat = async () => {
+  const client = clients.find((c) => c.id === 1);
+  if (!client) {
+    console.log("Client not found!");
+    return;
+  }
+
+  const chats = await client.client.getChats();
+  const lastChats = chats.slice(0, 5); // Get last 5 chats
+
+  console.log("Select a chat from the last 5 chats:");
+  lastChats.forEach((chat, index) => {
+    console.log(`${index + 1}. ${chat.name}`);
+  });
+
+  return new Promise((resolve) => {
+    rl.question("Your choice: ", async (chatChoice) => {
+      const selectedChat = lastChats[parseInt(chatChoice) - 1];
+      console.log(selectedChat.id);
+      const chat = await client.client.getChatById(selectedChat.id._serialized);
+      const messages = await chat.fetchMessages({ limit: 1 });
+      const lastMessage = messages[0]; // The most recent message
+
+      // Check if the last message has media
+      if (lastMessage.hasMedia) {
+        const media = await lastMessage.downloadMedia();
+        messageObj = { media, options: { caption: lastMessage.body } };
+        console.log(`Message from chat selected. Media: ${lastMessage.body}`);
+      } else {
+        messageObj = { body: lastMessage.body };
+        console.log(`Message from chat selected: ${lastMessage.body}`);
+      }
+      resolve(); // Ensure that the function resolves after chat is selected
+    });
+  });
 };
-
-
 // Function to restart a client
 const restartClient = async (clientId, callback) => {
   const clientObj = clients.find((c) => c.id === clientId);
@@ -265,7 +283,6 @@ const cleanupMemory = () => {
 
     for (const page of pages) {
       await page.evaluate(() => {
-        // Clear session storage and local storage
         sessionStorage.clear();
         localStorage.clear();
       });
