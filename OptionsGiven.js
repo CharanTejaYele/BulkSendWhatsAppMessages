@@ -4,9 +4,9 @@ const fs = require("fs");
 const csv = require("csv-parser");
 const path = require("path");
 const readline = require("readline");
-const { getMessage, getImage } = require("./Message");
+const { getMessage, getFile } = require("./Message");
 
-const MAX_CLIENTS = 1;
+const MAX_CLIENTS = 4;
 const CHUNK_SIZE = 20;
 const DELAY_BETWEEN_MESSAGES = 2000; // 2 seconds
 const MEMORY_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -161,14 +161,16 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
   const sendMessageToContact = (index) => {
     if (index >= contacts.length) {
       console.log(`Client ${clientId}: All messages sent for this batch.`);
-      onComplete();
+      // Restart the client after completing the chunk
+      restartClient(clientId, () => {
+        onComplete();
+      });
       return;
     }
 
     const contact = contacts[index];
     const phoneNumber = contact.phone;
     const chatId = `${phoneNumber}@c.us`;
-    console.log(...Object.values(messageObj));
 
     client
       .sendMessage(chatId, ...Object.values(messageObj))
@@ -202,15 +204,50 @@ const createMessageWithoutMedia = () => {
   return { body: messageText };
 };
 
-// Function to create a message with media (Option 2)
 const createMessageWithMedia = () => {
-  const imagePath = getImage();
+  const filePath = getFile(); // Assume this returns an object with path and type
+  // Determine the MIME type based on the file type
+  let mimeType;
+  const fileType = filePath.slice(filePath.lastIndexOf(".") + 1).toLowerCase(); // Extract file extension
+  switch (fileType) {
+    case "png":
+    case "jpg":
+    case "jpeg":
+      mimeType = `image/${fileType}`;
+      break;
+    case "mp4":
+    case "mov":
+      mimeType = `video/${fileType}`;
+      break;
+    case "mp3":
+    case "wav":
+      mimeType = `audio/${fileType}`;
+      break;
+    case "pdf":
+      mimeType = "application/pdf";
+      break;
+    default:
+      throw new Error("Unsupported file type");
+  }
+
+  // Read the file content
+  // Assuming 'filePath' contains the path to the file
+  const fileData = fs.readFileSync(filePath);
+
+  // Create the media object
   const media = new MessageMedia(
-    "image/png",
-    fs.readFileSync(imagePath).toString("base64"),
-    "image.png"
+    mimeType,
+    fileData.toString("base64"),
+    `${filePath.split("/").pop()}` // Use the actual file name
   );
-  return { media, options: { caption: messageText } };
+
+  // Return the message object with media and options
+  return {
+    media,
+    options: {
+      caption: messageText, // Assuming messageText is defined or passed as an argument
+    },
+  };
 };
 
 // Function to create a message from an existing chat (Option 3)
