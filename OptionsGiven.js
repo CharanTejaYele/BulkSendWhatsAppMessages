@@ -10,11 +10,14 @@ const {
   createMessageFromChat,
 } = require("./Functions/CreateMessageFunctions");
 
+
+
+const filePath = path.join(__dirname, "sentMessages.csv");
+const fields = ["clientId", "phoneNumber", "contactName", "timestamp"];
 const MAX_CLIENTS = 1;
 const CHUNK_SIZE = 20;
 const DELAY_BETWEEN_MESSAGES = 2000; // 2 seconds
 const MEMORY_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
-
 const contacts = [];
 let sent = 0;
 let clients = [];
@@ -74,7 +77,11 @@ const selectOption = async () => {
             messageObj = createMessageWithMedia(isTestMessage);
             sendType = "Message With Media";
           } else if (option === "3") {
-            messageObj=await createMessageFromChat(rl,isTestMessage,clients); // Await the function to ensure it's completed
+            messageObj = await createMessageFromChat(
+              rl,
+              isTestMessage,
+              clients
+            ); // Await the function to ensure it's completed
             sendType = "Message From Chat";
           } else {
             console.log("Invalid option. Exiting.");
@@ -171,6 +178,12 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
     return;
   }
 
+  // Create the CSV file with headers if it doesn't already exist
+  if (!fs.existsSync(filePath)) {
+    const header = fields.join(",") + "\n";
+    fs.writeFileSync(filePath, header);
+  }
+
   const sendMessageToContact = (index) => {
     if (index >= contacts.length) {
       console.log(`Client ${clientId}: All messages sent for this batch.`);
@@ -192,14 +205,27 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
         console.log(
           `Client ${clientId}: Message sent to ${contact.name} ${contact.last}. Total sent: ${sent}`
         );
+
+        // Create the message data object
+        const messageData = {
+          clientId,
+          phoneNumber,
+          contactName: `${contact["name"]} ${contact["last"]}`,
+          timestamp: new Date().toISOString(),
+        };
+
+        // Append the message data to the CSV file in real time
+        const csvRow = `${messageData.clientId},${messageData.phoneNumber},"${messageData.contactName}",${messageData.timestamp}\n`;
+        fs.appendFileSync(filePath, csvRow);
+
         setTimeout(
           () => sendMessageToContact(index + 1),
           DELAY_BETWEEN_MESSAGES
         );
       })
       .catch((error) => {
-        console.log(
-          `Client ${clientId}: Failed to send message to ${contact.name} ${contact.last}:`,
+        console.error(
+          `Client ${clientId}: Failed to send message to ${contact["First Name"]} ${contact["Last Name"]}:`,
           error
         );
         setTimeout(
