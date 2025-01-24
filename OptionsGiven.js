@@ -9,10 +9,12 @@ const {
   createMessageWithMedia,
   createMessageFromChat,
 } = require("./Functions/CreateMessageFunctions");
+const { formatPhoneNumber } = require("./Functions/PhoneNumberModifier");
 
 
 
-const filePath = path.join(__dirname, "sentMessages.csv");
+const sentMessagesFilePath = path.join(__dirname, "sentMessages.csv");
+const failedMessagesFilePath = path.join(__dirname, "failedMessages.csv");
 const fields = ["clientId", "phoneNumber", "contactName", "timestamp"];
 const MAX_CLIENTS = 1;
 const CHUNK_SIZE = 20;
@@ -33,14 +35,23 @@ const rl = readline.createInterface({
 
 // Parse the CSV file to extract contacts
 const parseCSVAndInitializeClients = () => {
+  if (!fs.existsSync(failedMessagesFilePath)) {
+    const header = ["PhoneNumber"].join(",") + "\n";
+    fs.writeFileSync(failedMessagesFilePath, header);
+  }
   fs.createReadStream("contacts.csv")
     .pipe(csv())
     .on("data", (row) => {
-      contacts.push({
-        name: row["First Name"],
-        last: row["Last Name"],
-        phone: row["Phone 1 - Value"],
-      });
+      const modifiedPhoneNumber = formatPhoneNumber(row["Phone 1 - Value"]);
+      if (modifiedPhoneNumber === "Invalid phone number") {
+        fs.appendFileSync(failedMessagesFilePath, modifiedPhoneNumber);
+      } else {
+        contacts.push({
+          name: row["First Name"],
+          last: row["Last Name"],
+          phone: modifiedPhoneNumber,
+        });
+      }
     })
     .on("end", () => {
       console.log("CSV file successfully processed.");
@@ -179,9 +190,9 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
   }
 
   // Create the CSV file with headers if it doesn't already exist
-  if (!fs.existsSync(filePath)) {
+  if (!fs.existsSync(sentMessagesFilePath)) {
     const header = fields.join(",") + "\n";
-    fs.writeFileSync(filePath, header);
+    fs.writeFileSync(sentMessagesFilePath, header);
   }
 
   const sendMessageToContact = (index) => {
@@ -216,7 +227,7 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
 
         // Append the message data to the CSV file in real time
         const csvRow = `${messageData.clientId},${messageData.phoneNumber},"${messageData.contactName}",${messageData.timestamp}\n`;
-        fs.appendFileSync(filePath, csvRow);
+        fs.appendFileSync(sentMessagesFilePath, csvRow);
 
         setTimeout(
           () => sendMessageToContact(index + 1),
