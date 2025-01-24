@@ -11,11 +11,10 @@ const {
 } = require("./Functions/CreateMessageFunctions");
 const { formatPhoneNumber } = require("./Functions/PhoneNumberModifier");
 
-
-
 const sentMessagesFilePath = path.join(__dirname, "sentMessages.csv");
 const failedMessagesFilePath = path.join(__dirname, "failedMessages.csv");
-const fields = ["clientId", "phoneNumber", "contactName", "timestamp"];
+const failedCSVFields = ["phoneNumber", "contactName"];
+const SentCSVFields = ["clientId", "phoneNumber", "contactName", "timestamp"];
 const MAX_CLIENTS = 1;
 const CHUNK_SIZE = 20;
 const DELAY_BETWEEN_MESSAGES = 2000; // 2 seconds
@@ -36,25 +35,47 @@ const rl = readline.createInterface({
 // Parse the CSV file to extract contacts
 const parseCSVAndInitializeClients = () => {
   if (!fs.existsSync(failedMessagesFilePath)) {
-    const header = ["PhoneNumber"].join(",") + "\n";
+    const header = failedCSVFields.join(",") + "\n";
     fs.writeFileSync(failedMessagesFilePath, header);
   }
   fs.createReadStream("contacts.csv")
     .pipe(csv())
     .on("data", (row) => {
-      const modifiedPhoneNumber = formatPhoneNumber(row["Phone 1 - Value"]);
-      if (modifiedPhoneNumber === "Invalid phone number") {
-        fs.appendFileSync(failedMessagesFilePath, modifiedPhoneNumber);
-      } else {
-        contacts.push({
-          name: row["First Name"],
-          last: row["Last Name"],
-          phone: modifiedPhoneNumber,
-        });
+      try {
+        const modifiedPhoneNumber = formatPhoneNumber(row["Phone 1 - Value"]);
+        if (
+          modifiedPhoneNumber === "Invalid phone number" ||
+          !(
+            modifiedPhoneNumber.length === 12 &&
+            modifiedPhoneNumber.startsWith("91")
+          )
+        ) {
+          const csvRow = `${modifiedPhoneNumber},"${row["First Name"] || ""} ${
+            row["Last Name"] || ""
+          }"\n`;
+          fs.appendFileSync(failedMessagesFilePath, csvRow);
+        } else {
+          contacts.push({
+            name: row["First Name"] || "",
+            last: row["Last Name"] || "",
+            phone: modifiedPhoneNumber,
+          });
+        }
+      } catch (err) {
+        console.error(
+          `Error processing row with data: ${JSON.stringify(row)}\nError:`,
+          err
+        );
       }
     })
     .on("end", () => {
-      console.log("CSV file successfully processed.");
+      console.log(
+        `CSV file successfully processed. ${contacts.length} valid contacts extracted.`
+      );
+
+      if (!CHUNK_SIZE || CHUNK_SIZE <= 0) {
+        throw new Error("CHUNK_SIZE must be a positive integer.");
+      }
 
       // Split contacts into chunks of CHUNK_SIZE
       const contactChunks = [];
@@ -64,6 +85,9 @@ const parseCSVAndInitializeClients = () => {
 
       // Initialize clients and start processing
       initializeClients(contactChunks);
+    })
+    .on("error", (err) => {
+      console.error("Error reading CSV file:", err);
     });
 };
 
@@ -191,7 +215,7 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
 
   // Create the CSV file with headers if it doesn't already exist
   if (!fs.existsSync(sentMessagesFilePath)) {
-    const header = fields.join(",") + "\n";
+    const header = SentCSVFields.join(",") + "\n";
     fs.writeFileSync(sentMessagesFilePath, header);
   }
 
@@ -226,7 +250,7 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
         };
 
         // Append the message data to the CSV file in real time
-        const csvRow = `${messageData.clientId},${messageData.phoneNumber},"${messageData.contactName}",${messageData.timestamp}\n`;
+        const csvRow = `${messageData.clientId},${messageData.phoneNumber},"${messageData.contactName}"\n`;
         fs.appendFileSync(sentMessagesFilePath, csvRow);
 
         setTimeout(
