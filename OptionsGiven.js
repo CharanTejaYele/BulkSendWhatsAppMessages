@@ -9,8 +9,11 @@ const {
   createMessageWithMedia,
   createMessageFromChat,
 } = require("./Functions/CreateMessageFunctions");
+const { parse } = require("json2csv");
+const filePath = path.join(__dirname, "sentMessages.csv");
+const fields = ["clientId", "phoneNumber", "contactName", "timestamp"];
 
-const MAX_CLIENTS = 1;
+const MAX_CLIENTS = 4;
 const CHUNK_SIZE = 20;
 const DELAY_BETWEEN_MESSAGES = 2000; // 2 seconds
 const MEMORY_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -74,7 +77,11 @@ const selectOption = async () => {
             messageObj = createMessageWithMedia(isTestMessage);
             sendType = "Message With Media";
           } else if (option === "3") {
-            messageObj=await createMessageFromChat(rl,isTestMessage,clients); // Await the function to ensure it's completed
+            messageObj = await createMessageFromChat(
+              rl,
+              isTestMessage,
+              clients
+            ); // Await the function to ensure it's completed
             sendType = "Message From Chat";
           } else {
             console.log("Invalid option. Exiting.");
@@ -171,7 +178,13 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
     return;
   }
 
-  const sendMessageToContact = (index) => {
+  // Create the CSV file with headers if it doesn't already exist
+  if (!fs.existsSync(filePath)) {
+    const header = fields.join(",") + "\n";
+    fs.writeFileSync(filePath, header);
+  }
+
+  const sendMessageToContact = async (index, subIndex = 0) => {
     if (index >= contacts.length) {
       console.log(`Client ${clientId}: All messages sent for this batch.`);
       // Restart the client after completing the chunk
@@ -185,28 +198,75 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
     const phoneNumber = contact.phone;
     const chatId = `${phoneNumber}@c.us`;
 
-    client
-      .sendMessage(chatId, ...Object.values(messageObj))
-      .then(() => {
-        sent++;
-        console.log(
-          `Client ${clientId}: Message sent to ${contact.name} ${contact.last}. Total sent: ${sent}`
+    // Define the messages to be sent
+    const messages = [
+      messageObj, // Assuming `messageObj` is the first message (could contain media)
+      { body: "https://chat.whatsapp.com/Laq03qdUUbbI8abe2qvDVx" },
+      { body: "https://t.me/YNRMOBILEFOLDERS" },
+    ];
+
+    if (subIndex >= messages.length) {
+      // Move to the next contact after sending all messages
+      setTimeout(
+        () => sendMessageToContact(index + 1, 0),
+        DELAY_BETWEEN_MESSAGES
+      );
+      return;
+    }
+
+    const currentMessage = messages[subIndex];
+    try {
+      // Send the current message
+      if (currentMessage.media) {
+        await client.sendMessage(
+          chatId,
+          currentMessage.media,
+          currentMessage.options || {}
         );
-        setTimeout(
-          () => sendMessageToContact(index + 1),
-          DELAY_BETWEEN_MESSAGES
-        );
-      })
-      .catch((error) => {
-        console.log(
-          `Client ${clientId}: Failed to send message to ${contact.name} ${contact.last}:`,
-          error
-        );
-        setTimeout(
-          () => sendMessageToContact(index + 1),
-          DELAY_BETWEEN_MESSAGES
-        );
-      });
+      } else {
+        await client.sendMessage(chatId, currentMessage.body);
+      }
+
+      sent++;
+
+      // Create the message data object
+      const messageData = {
+        clientId,
+        phoneNumber,
+        contactName: `${contact["name"]} ${contact["last"]}`,
+        timestamp: new Date().toISOString(),
+        message: currentMessage.body || "Media Message",
+      };
+
+      // Append the message data to the CSV file in real time
+      const csvRow = `${messageData.clientId},${messageData.phoneNumber},"${messageData.contactName}",${messageData.timestamp},"${messageData.message}"\n`;
+      fs.appendFileSync(filePath, csvRow);
+
+      console.log(
+        `Client ${clientId}: Message sent to ${contact["name"]} ${
+          contact["last"]
+        } - ${currentMessage.body || "Media Message"}`
+      );
+
+      // Wait before sending the next message in the sequence
+      setTimeout(
+        () => sendMessageToContact(index, subIndex + 1),
+        DELAY_BETWEEN_MESSAGES
+      );
+    } catch (error) {
+      console.error(
+        `Client ${clientId}: Failed to send message "${
+          currentMessage.body || "Media Message"
+        }" to ${contact["name"]} ${contact["last"]}:`,
+        error
+      );
+
+      // Skip to the next contact in case of failure
+      setTimeout(
+        () => sendMessageToContact(index + 1, 0),
+        DELAY_BETWEEN_MESSAGES
+      );
+    }
   };
 
   sendMessageToContact(0); // Start with the first contact
