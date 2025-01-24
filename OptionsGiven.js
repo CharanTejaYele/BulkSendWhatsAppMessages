@@ -1,12 +1,16 @@
-const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
+const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const fs = require("fs");
 const csv = require("csv-parser");
 const path = require("path");
 const readline = require("readline");
-const { getMessage, getFile } = require("./Message");
+const {
+  createMessageWithoutMedia,
+  createMessageWithMedia,
+  createMessageFromChat,
+} = require("./Functions/CreateMessageFunctions");
 
-const MAX_CLIENTS = 4;
+const MAX_CLIENTS = 1;
 const CHUNK_SIZE = 20;
 const DELAY_BETWEEN_MESSAGES = 2000; // 2 seconds
 const MEMORY_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -15,8 +19,8 @@ const contacts = [];
 let sent = 0;
 let clients = [];
 let sendType = "";
-let messageText = getMessage();
 let messageObj;
+let isTestMessage = false;
 
 // Initialize readline interface
 const rl = readline.createInterface({
@@ -52,30 +56,39 @@ const parseCSVAndInitializeClients = () => {
 // Main CLI Menu
 const selectOption = async () => {
   return new Promise(async (resolve) => {
-    rl.question(
-      "Select an option: \n1. Send Message Without Media\n2. Send Message With Media\n3. Select Message from Chat\nYour choice: ",
-      async (option) => {
-        if (option === "1") {
-          messageObj = createMessageWithoutMedia();
-          sendType = "Message Without Media";
-        } else if (option === "2") {
-          messageObj = createMessageWithMedia();
-          sendType = "Message With Media";
-        } else if (option === "3") {
-          await createMessageFromChat(); // Await the function to ensure it's completed
-          sendType = "Message From Chat";
-        } else {
-          console.log("Invalid option. Exiting.");
-          rl.close();
-          resolve(); // Exit if the option is invalid
-          return;
-        }
-
-        console.log(`You chose: ${sendType}`);
-        rl.close(); // Close the CLI prompt after the selection
-        resolve(); // Continue the process after the option is selected
+    // Ask if it's a test message
+    rl.question("Is this a test message? (y/n): ", async (testAnswer) => {
+      if (testAnswer.toLowerCase() === "y") {
+        isTestMessage = true;
       }
-    );
+
+      // Now present the main options
+      rl.question(
+        "Select an option: \n1. Send Message Without Media\n2. Send Message With Media\n3. Select Message from Chat\nYour choice: ",
+        async (option) => {
+          console.log("Type of clients:", typeof clients);
+          if (option === "1") {
+            messageObj = createMessageWithoutMedia(isTestMessage);
+            sendType = "Message Without Media";
+          } else if (option === "2") {
+            messageObj = createMessageWithMedia(isTestMessage);
+            sendType = "Message With Media";
+          } else if (option === "3") {
+            messageObj=await createMessageFromChat(rl,isTestMessage,clients); // Await the function to ensure it's completed
+            sendType = "Message From Chat";
+          } else {
+            console.log("Invalid option. Exiting.");
+            rl.close();
+            resolve(); // Exit if the option is invalid
+            return;
+          }
+
+          console.log(`You chose: ${sendType}`);
+          rl.close(); // Close the CLI prompt after the selection
+          resolve(); // Continue the process after the option is selected
+        }
+      );
+    });
   });
 };
 
@@ -199,94 +212,6 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
   sendMessageToContact(0); // Start with the first contact
 };
 
-// Function to create a message without media (Option 1)
-const createMessageWithoutMedia = () => {
-  return { body: messageText };
-};
-
-const createMessageWithMedia = () => {
-  const filePath = getFile(); // Assume this returns an object with path and type
-  // Determine the MIME type based on the file type
-  let mimeType;
-  const fileType = filePath.slice(filePath.lastIndexOf(".") + 1).toLowerCase(); // Extract file extension
-  switch (fileType) {
-    case "png":
-    case "jpg":
-    case "jpeg":
-      mimeType = `image/${fileType}`;
-      break;
-    case "mp4":
-    case "mov":
-      mimeType = `video/${fileType}`;
-      break;
-    case "mp3":
-    case "wav":
-      mimeType = `audio/${fileType}`;
-      break;
-    case "pdf":
-      mimeType = "application/pdf";
-      break;
-    default:
-      throw new Error("Unsupported file type");
-  }
-
-  // Read the file content
-  // Assuming 'filePath' contains the path to the file
-  const fileData = fs.readFileSync(filePath);
-
-  // Create the media object
-  const media = new MessageMedia(
-    mimeType,
-    fileData.toString("base64"),
-    `${filePath.split("/").pop()}` // Use the actual file name
-  );
-
-  // Return the message object with media and options
-  return {
-    media,
-    options: {
-      caption: messageText, // Assuming messageText is defined or passed as an argument
-    },
-  };
-};
-
-// Function to create a message from an existing chat (Option 3)
-const createMessageFromChat = async () => {
-  const client = clients.find((c) => c.id === 1);
-  if (!client) {
-    console.log("Client not found!");
-    return;
-  }
-
-  const chats = await client.client.getChats();
-  const lastChats = chats.slice(0, 5); // Get last 5 chats
-
-  console.log("Select a chat from the last 5 chats:");
-  lastChats.forEach((chat, index) => {
-    console.log(`${index + 1}. ${chat.name}`);
-  });
-
-  return new Promise((resolve) => {
-    rl.question("Your choice: ", async (chatChoice) => {
-      const selectedChat = lastChats[parseInt(chatChoice) - 1];
-      console.log(selectedChat.id);
-      const chat = await client.client.getChatById(selectedChat.id._serialized);
-      const messages = await chat.fetchMessages({ limit: 1 });
-      const lastMessage = messages[0]; // The most recent message
-
-      // Check if the last message has media
-      if (lastMessage.hasMedia) {
-        const media = await lastMessage.downloadMedia();
-        messageObj = { media, options: { caption: lastMessage.body } };
-        console.log(`Message from chat selected. Media: ${lastMessage.body}`);
-      } else {
-        messageObj = { body: lastMessage.body };
-        console.log(`Message from chat selected: ${lastMessage.body}`);
-      }
-      resolve(); // Ensure that the function resolves after chat is selected
-    });
-  });
-};
 // Function to restart a client
 const restartClient = async (clientId, callback) => {
   const clientObj = clients.find((c) => c.id === clientId);
