@@ -10,7 +10,10 @@ const {
   createMessageFromChat,
 } = require("./Functions/CreateMessageFunctions");
 const { formatPhoneNumber } = require("./Functions/PhoneNumberModifier");
+const { createObjectCsvWriter } = require("csv-writer");
+const { parse } = require("csv-parse");
 
+const contactsFilePath = "contacts.csv";
 const sentMessagesFilePath = path.join(__dirname, "sentMessages.csv");
 const failedMessagesFilePath = path.join(__dirname, "failedMessages.csv");
 const failedCSVFields = ["phoneNumber", "contactName"];
@@ -33,58 +36,132 @@ const rl = readline.createInterface({
 });
 
 // Parse the CSV file to extract contacts
-const parseCSVAndInitializeClients = () => {
-  if (!fs.existsSync(failedMessagesFilePath)) {
-    const header = failedCSVFields.join(",") + "\n";
-    fs.writeFileSync(failedMessagesFilePath, header);
-  }
-  fs.createReadStream("contacts.csv")
-    .pipe(csv())
-    .on("data", (row) => {
-      try {
-        const modifiedPhoneNumber = formatPhoneNumber(row["Phone 1 - Value"]);
-        if (
-          modifiedPhoneNumber === "Invalid phone number" ||
-          !(
-            modifiedPhoneNumber.length === 12 &&
-            modifiedPhoneNumber.startsWith("91")
-          )
-        ) {
-          const csvRow = `${modifiedPhoneNumber},"${row["First Name"] || ""} ${
-            row["Last Name"] || ""
-          }"\n`;
-          fs.appendFileSync(failedMessagesFilePath, csvRow);
-        } else {
-          contacts.push({
-            name: row["First Name"] || "",
-            last: row["Last Name"] || "",
-            phone: modifiedPhoneNumber,
-          });
-        }
-      } catch (err) {
-        console.error(
-          `Error processing row with data: ${JSON.stringify(row)}\nError:`,
-          err
-        );
-      }
-    })
-    .on("end", () => {
-      console.log(
-        `CSV file successfully processed. ${contacts.length} valid contacts extracted.`
+// Update the CSV file with the modified contacts
+const replaceDataInContactsFile = (rows) => {
+  const headers = Object.keys(rows[0]).map((header) => ({
+    id: header,
+    title: header,
+  }));
+  const csvWriter = createObjectCsvWriter({
+    path: contactsFilePath,
+    header: headers,
+  });
+
+  return csvWriter.writeRecords(rows);
+};
+
+const updateContactsFile = async (rows) => {
+  const existingRows = [];
+
+  // Read the existing CSV file
+  const parseCSV = () =>
+    new Promise((resolve, reject) => {
+      fs.createReadStream(contactsFilePath)
+        .pipe(parse({ columns: true }))
+        .on("data", (data) => existingRows.push(data))
+        .on("end", () => resolve())
+        .on("error", (error) => reject(error));
+    });
+
+  try {
+    await parseCSV();
+    const updatedRows = existingRows.map((existingRow) => {
+      const updatedRow = rows.find(
+        (row) =>
+          row.ModifiedPhoneNumber === existingRow.ModifiedPhoneNumber &&
+          row["First Name"] === existingRow["First Name"] &&
+          row["Middle Name"] === existingRow["Middle Name"] &&
+          row["Last Name"] === existingRow["Last Name"]
       );
 
-      if (!CHUNK_SIZE || CHUNK_SIZE <= 0) {
-        throw new Error("CHUNK_SIZE must be a positive integer.");
+      return updatedRow ? updatedRow : existingRow; // Replace if matched, otherwise keep the same
+    });
+
+    // Use the existing replaceDataInContactsFile function
+    await replaceDataInContactsFile(updatedRows);
+    console.log("Contacts file updated successfully.");
+  } catch (error) {
+    console.error("Error updating contacts file:", error);
+  }
+};
+
+// Parse the CSV file and process contacts
+const parseCSVAndInitializeClients = () => {
+  const rows = [];
+  fs.createReadStream(contactsFilePath)
+    .pipe(csv())
+    .on("data", (row) => {
+      rows.push(row);
+    })
+    .on("end", async () => {
+      // Check and fill missing columns
+      if (!rows[0].hasOwnProperty("Status")) {
+        rows.forEach((row) => {
+          row.Status = "Not Sent"; // Add "Not Sent" status for all rows
+        });
+      } else {
+        // Fill empty "Status" values with "Not Sent"
+        rows.forEach((row) => {
+          if (!row.Status) row.Status = "Not Sent";
+        });
       }
 
-      // Split contacts into chunks of CHUNK_SIZE
-      const contactChunks = [];
-      for (let i = 0; i < contacts.length; i += CHUNK_SIZE) {
-        contactChunks.push(contacts.slice(i, i + CHUNK_SIZE));
+      if (!rows[0].hasOwnProperty("ModifiedPhoneNumber")) {
+        rows.forEach((row) => {
+          row.ModifiedPhoneNumber = formatPhoneNumber(row["Phone 1 - Value"]);
+        });
+      } else {
+        // Fill empty "ModifiedPhoneNumber" values
+        rows.forEach((row) => {
+          if (!row.ModifiedPhoneNumber) {
+            row.ModifiedPhoneNumber = formatPhoneNumber(row["Phone 1 - Value"]);
+          }
+        });
       }
 
-      // Initialize clients and start processing
-      initializeClients(contactChunks);
+      // Write back the updated file
+      await replaceDataInContactsFile(rows);
+
+      console.log(
+        "Contacts file updated with Status and ModifiedPhoneNumber columns."
+      );
+
+      // Filter contacts with Status: "Not Sent"
+      const notSentContacts = rows.filter(
+        (row) =>
+          row.Status === "Not Sent" &&
+          row.ModifiedPhoneNumber !== "Invalid phone number"
+      );
+
+      // Ask for the number of contacts to process
+      rl.question("How many contacts do you want to process? ", (input) => {
+        const numberToProcess = parseInt(input, 10);
+
+        if (isNaN(numberToProcess) || numberToProcess <= 0) {
+          console.error("Invalid input. Please enter a positive integer.");
+          rl.close();
+          return;
+        }
+
+        const contactsToProcess = notSentContacts.slice(0, numberToProcess);
+
+        if (!CHUNK_SIZE || CHUNK_SIZE <= 0) {
+          throw new Error("CHUNK_SIZE must be a positive integer.");
+        }
+
+        // Split contacts into chunks of CHUNK_SIZE
+        const contactChunks = [];
+        for (let i = 0; i < contactsToProcess.length; i += CHUNK_SIZE) {
+          contactChunks.push(contactsToProcess.slice(i, i + CHUNK_SIZE));
+        }
+
+        console.log(
+          `Processing ${contactsToProcess.length} contacts in ${contactChunks.length} chunks.`
+        );
+
+        // Initialize clients and start processing
+        initializeClients(contactChunks);
+      });
     })
     .on("error", (err) => {
       console.error("Error reading CSV file:", err);
@@ -230,9 +307,8 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
     }
 
     const contact = contacts[index];
-    const phoneNumber = contact.phone;
+    const phoneNumber = contact.ModifiedPhoneNumber;
     const chatId = `${phoneNumber}@c.us`;
-
     client
       .sendMessage(chatId, ...Object.values(messageObj))
       .then(() => {
@@ -240,6 +316,9 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
         console.log(
           `Client ${clientId}: Message sent to ${contact.name} ${contact.last}. Total sent: ${sent}`
         );
+
+        // Update the status to "Sent" in the original contacts list
+        contact.Status = "Sent";
 
         // Create the message data object
         const messageData = {
@@ -253,6 +332,13 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
         const csvRow = `${messageData.clientId},${messageData.phoneNumber},"${messageData.contactName}"\n`;
         fs.appendFileSync(sentMessagesFilePath, csvRow);
 
+        // Write updated contacts back to the CSV file
+        updateContactsFile(contacts)
+          .then(() => {})
+          .catch((err) => {
+            console.error("Error updating contacts file:", err);
+          });
+
         setTimeout(
           () => sendMessageToContact(index + 1),
           DELAY_BETWEEN_MESSAGES
@@ -260,7 +346,7 @@ const sendMessagesSequentially = (client, contacts, clientId, onComplete) => {
       })
       .catch((error) => {
         console.error(
-          `Client ${clientId}: Failed to send message to ${contact["First Name"]} ${contact["Last Name"]}:`,
+          `Client ${clientId}: Failed to send message to ${contact["name"]} ${contact["last"]}:`,
           error
         );
         setTimeout(
