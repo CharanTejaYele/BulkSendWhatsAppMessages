@@ -126,42 +126,56 @@ const parseCSVAndInitializeClients = () => {
         "Contacts file updated with Status and ModifiedPhoneNumber columns."
       );
 
-      // Filter contacts with Status: "Not Sent"
-      const notSentContacts = rows.filter(
-        (row) =>
-          row.Status === "Not Sent" &&
-          row.ModifiedPhoneNumber !== "Invalid phone number"
-      );
+      // Prompt user for the organization name
+      rl.question(
+        "Enter the organization name to filter contacts (leave empty to skip): ",
+        (organizationName) => {
+          // Filter contacts with Status: "Not Sent"
+          const notSentContacts = rows.filter((row) => {
+            const isNotSent = row.Status === "Not Sent";
+            const isPhoneValid =
+              row.ModifiedPhoneNumber !== "Invalid phone number";
+            const isOrganizationMatch =
+              !organizationName ||
+              row["Organization Name"] === organizationName;
+
+            return isNotSent && isPhoneValid && isOrganizationMatch;
+          });
 
       // Ask for the number of contacts to process
-      rl.question("How many contacts do you want to process? ", (input) => {
-        const numberToProcess = parseInt(input, 10);
+      rl.question(
+        `The selected criteria has ${notSentContacts.length} contacts. How many contacts do you want to process: `,
+        (input) => {
+          const numberToProcess = parseInt(input, 10);
 
-        if (isNaN(numberToProcess) || numberToProcess <= 0) {
-          console.error("Invalid input. Please enter a positive integer.");
-          rl.close();
-          return;
+          if (isNaN(numberToProcess) || numberToProcess <= 0) {
+            console.error("Invalid input. Please enter a positive integer.");
+            rl.close();
+            return;
+          }
+
+          const contactsToProcess = notSentContacts.slice(0, numberToProcess);
+
+          if (!CHUNK_SIZE || CHUNK_SIZE <= 0) {
+            throw new Error("CHUNK_SIZE must be a positive integer.");
+          }
+
+          // Split contacts into chunks of CHUNK_SIZE
+          const contactChunks = [];
+          for (let i = 0; i < contactsToProcess.length; i += CHUNK_SIZE) {
+            contactChunks.push(contactsToProcess.slice(i, i + CHUNK_SIZE));
+          }
+
+          console.log(
+            `Processing ${contactsToProcess.length} contacts in ${contactChunks.length} chunks.`
+          );
+
+          // Initialize clients and start processing
+          initializeClients(contactChunks);
+            }
+          );
         }
-
-        const contactsToProcess = notSentContacts.slice(0, numberToProcess);
-
-        if (!CHUNK_SIZE || CHUNK_SIZE <= 0) {
-          throw new Error("CHUNK_SIZE must be a positive integer.");
-        }
-
-        // Split contacts into chunks of CHUNK_SIZE
-        const contactChunks = [];
-        for (let i = 0; i < contactsToProcess.length; i += CHUNK_SIZE) {
-          contactChunks.push(contactsToProcess.slice(i, i + CHUNK_SIZE));
-        }
-
-        console.log(
-          `Processing ${contactsToProcess.length} contacts in ${contactChunks.length} chunks.`
-        );
-
-        // Initialize clients and start processing
-        initializeClients(contactChunks);
-      });
+      );
     })
     .on("error", (err) => {
       console.error("Error reading CSV file:", err);
