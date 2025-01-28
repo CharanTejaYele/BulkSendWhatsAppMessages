@@ -92,6 +92,7 @@ function chunkContacts(contacts, chunkSize) {
   for (let i = 0; i < contacts.length; i += chunkSize) {
     chunks.push(contacts.slice(i, i + chunkSize));
   }
+  console.log(`Total Chunks ${chunks.length}`);
   return chunks;
 }
 
