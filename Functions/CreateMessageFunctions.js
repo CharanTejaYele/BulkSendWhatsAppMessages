@@ -1,5 +1,5 @@
 const { MessageMedia } = require("whatsapp-web.js");
-const { getMessage, getFile } = require("../Message");
+const { getMessage, getImage } = require("./Message");
 const fs = require("fs");
 
 // Function to create a message without media (Option 1)
@@ -11,7 +11,7 @@ const createMessageWithoutMedia = () => {
 const createMessageWithMedia = () => {
   let messageText = getMessage();
 
-  const filePath = getFile(); // Assume this returns an object with path and type
+  const filePath = getImage(); // Assume this returns an object with path and type
   // Determine the MIME type based on the file type
   let mimeType;
   const fileType = filePath.slice(filePath.lastIndexOf(".") + 1).toLowerCase(); // Extract file extension

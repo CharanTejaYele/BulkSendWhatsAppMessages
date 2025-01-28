@@ -2,13 +2,12 @@
 
 // Define the message as a constant
 const getMessage = (contact) => {
-    return `
-    `;
+    return `Hiiii`;
   };
   
 
   const getImage = () => {
-    return ``;
+    return `Logo.jpg`;
   };
   
   module.exports = {getMessage,getImage};
