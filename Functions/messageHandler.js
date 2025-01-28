@@ -50,7 +50,13 @@ function selectOption(rl, clients) {
   });
 }
 
-function sendMessages(clientObj, contacts, clientId, onComplete) {
+function sendMessages(
+  clientObj,
+  contacts,
+  clientId,
+  incrementCounter,
+  onComplete
+) {
   const client = clientObj.client;
   if (!fs.existsSync(config.sentMessagesFilePath)) {
     const header = config.sentCSVFields.join(",") + "\n";
@@ -76,11 +82,12 @@ function sendMessages(clientObj, contacts, clientId, onComplete) {
     const chatId = `${phoneNumber}@c.us`;
     try {
       await client.sendMessage(chatId, ...Object.values(messageObj));
-      console.log(
-        `Client ${clientId}: Message sent to ${contact["First Name"]} ${contact["Middle Name"]} ${contact["Last Name"]}.`
-      );
       contact.Status = "Sent";
 
+      // Increment the counter after a successful send
+      await incrementCounter();
+
+      // Update the contacts file
       updateContactsFile(contacts)
         .then(() => {})
         .catch((err) => {

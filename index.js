@@ -1,11 +1,12 @@
 const readline = require("readline");
 
-const {
-  initializeClients,
-} = require("./Functions/clientManager");
+const { initializeClients } = require("./Functions/clientManager");
 const { selectOption, sendMessages } = require("./Functions/messageHandler");
 const config = require("./config");
 const { parseCSVAndProcessContacts } = require("./Functions/configHandler");
+const { createCounter } = require("./Functions/counter");
+
+const incrementCounter = createCounter();
 
 // Main execution flow
 async function main() {
@@ -114,7 +115,7 @@ async function assignTasksParallel(clients, contactChunks) {
         `Assigning a new chunk to client ${clientId}. Remaining chunks: ${pendingChunks.length}`
       );
 
-      sendMessages(clientObj, chunk, clientId, () => {
+      sendMessages(clientObj, chunk, clientId, incrementCounter, () => {
         clientObj.busy = false;
         processNextChunk(clientId);
       });
