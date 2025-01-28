@@ -34,17 +34,24 @@ async function initializeClients() {
   return clients;
 }
 
-async function restartClient(clientId, clientObj) {
+const restartClient = async (clientObj, clientId, callback) => {
+  if (!clientObj) {
+    console.error(`Client ${clientId} not found for restart.`);
+    return;
+  }
+
   console.log(`Restarting client ${clientId}...`);
   try {
-    await clientObj.client.destroy();
-    const newClient = await createClient(clientId);
-    clientObj.client = newClient;
+    await clientObj.client.destroy(); // Destroy the client
+    const newClient = await createClient(clientId); // Reinitialize the client
+    clientObj.client = newClient; // Replace the old client instance
     console.log(`Client ${clientId} restarted successfully.`);
+    if (callback) callback(); // Notify that the restart is complete
   } catch (error) {
     console.error(`Failed to restart client ${clientId}:`, error);
+    if (callback) callback();
   }
-}
+};
 
 module.exports = {
   initializeClients,

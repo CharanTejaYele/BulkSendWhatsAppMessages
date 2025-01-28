@@ -2,7 +2,6 @@ const readline = require("readline");
 
 const {
   initializeClients,
-  restartClient,
 } = require("./Functions/clientManager");
 const { selectOption, sendMessages } = require("./Functions/messageHandler");
 const config = require("./config");
@@ -29,7 +28,7 @@ async function main() {
     const contactChunks = chunkContacts(filteredContacts, config.CHUNK_SIZE);
 
     // Let the user select the type of message
-    const { messageObj, sendType } = await selectOption(rl, clients);
+    const { messageObj } = await selectOption(rl, clients);
 
     // Assign tasks to clients
     await assignTasksParallel(clients, contactChunks, messageObj);
@@ -115,7 +114,7 @@ async function assignTasksParallel(clients, contactChunks) {
         `Assigning a new chunk to client ${clientId}. Remaining chunks: ${pendingChunks.length}`
       );
 
-      sendMessages(clientObj.client, chunk, clientId, () => {
+      sendMessages(clientObj, chunk, clientId, () => {
         clientObj.busy = false;
         processNextChunk(clientId);
       });

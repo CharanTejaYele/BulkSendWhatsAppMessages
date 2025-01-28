@@ -50,7 +50,8 @@ function selectOption(rl, clients) {
   });
 }
 
-function sendMessages(client, contacts, clientId, onComplete) {
+function sendMessages(clientObj, contacts, clientId, onComplete) {
+  const client = clientObj.client;
   if (!fs.existsSync(config.sentMessagesFilePath)) {
     const header = config.sentCSVFields.join(",") + "\n";
     fs.writeFileSync(config.sentMessagesFilePath, header);
@@ -64,8 +65,9 @@ function sendMessages(client, contacts, clientId, onComplete) {
   async function sendMessageToContact(index) {
     if (index >= contacts.length) {
       console.log(`Client ${clientId}: All messages sent for this batch.`);
-      await restartClient(clientId, { client });
-      onComplete();
+      restartClient(clientObj, clientId, () => {
+        onComplete();
+      });
       return;
     }
 
