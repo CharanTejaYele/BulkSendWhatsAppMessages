@@ -2,7 +2,7 @@ const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
 const config = require("../config");
 
-function createClient(clientId) {
+function createClient(clientId, isRestart) {
   return new Promise((resolve) => {
     const client = new Client({
       authStrategy: new LocalAuth({ clientId: `whatsapp-client-${clientId}` }),
@@ -17,7 +17,11 @@ function createClient(clientId) {
     });
 
     client.on("ready", () => {
-      console.log(`Client ${clientId} is ready!`);
+      if (isRestart) {
+        console.log(`Client ${clientId} restarted successfully.........!`);
+      } else {
+        console.log(`Client ${clientId} is ready!`);
+      }
       resolve(client);
     });
 
@@ -43,9 +47,8 @@ const restartClient = async (clientObj, clientId, callback) => {
   console.log(`Restarting client ${clientId}...`);
   try {
     await clientObj.client.destroy(); // Destroy the client
-    const newClient = await createClient(clientId); // Reinitialize the client
+    const newClient = await createClient(clientId, true); // Reinitialize the client
     clientObj.client = newClient; // Replace the old client instance
-    console.log(`Client ${clientId} restarted successfully.`);
     if (callback) callback(); // Notify that the restart is complete
   } catch (error) {
     console.error(`Failed to restart client ${clientId}:`, error);
