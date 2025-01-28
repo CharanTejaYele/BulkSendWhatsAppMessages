@@ -6,6 +6,7 @@ const {
   createMessageFromChat,
 } = require("./CreateMessageFunctions");
 const { updateContactsFile } = require("./configHandler");
+const { restartClient } = require("./clientManager");
 
 let messageObj;
 

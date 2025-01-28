@@ -97,7 +97,7 @@ function chunkContacts(contacts, chunkSize) {
 }
 
 // Helper function to assign tasks to clients in parallel
-async function assignTasksParallel(clients, contactChunks, messageObj) {
+async function assignTasksParallel(clients, contactChunks) {
   let pendingChunks = [...contactChunks];
 
   const processNextChunk = (clientId) => {

@@ -43,19 +43,51 @@ async function replaceDataInContactsFile(rows) {
   await csvWriter.writeRecords(rows);
 }
 
+let isUpdating = false;
+let updateQueue = [];
+
 async function updateContactsFile(rows) {
-  const existingRows = await readCSV(config.contactsFilePath);
-  const updatedRows = existingRows.map((existingRow) => {
-    const updatedRow = rows.find(
-      (row) =>
-        row.ModifiedPhoneNumber === existingRow.ModifiedPhoneNumber &&
-        row["First Name"] === existingRow["First Name"] &&
-        row["Middle Name"] === existingRow["Middle Name"] &&
-        row["Last Name"] === existingRow["Last Name"]
-    );
-    return updatedRow || existingRow;
+  return new Promise((resolve, reject) => {
+    // Add the current request to the queue
+    updateQueue.push({ rows, resolve, reject });
+    // Try to process the queue
+    processQueue();
   });
-  await replaceDataInContactsFile(updatedRows);
+
+  function processQueue() {
+    if (isUpdating || updateQueue.length === 0) return; // If already updating or queue is empty, do nothing
+
+    isUpdating = true;
+    const { rows, resolve, reject } = updateQueue.shift(); // Get the first item from the queue
+
+    readCSV(config.contactsFilePath)
+      .then((existingRows) => {
+        const updatedRows = existingRows.map((existingRow) => {
+          const updatedRow = rows.find(
+            (row) =>
+              row.ModifiedPhoneNumber === existingRow.ModifiedPhoneNumber &&
+              row["First Name"] === existingRow["First Name"] &&
+              row["Middle Name"] === existingRow["Middle Name"] &&
+              row["Last Name"] === existingRow["Last Name"]
+          );
+          // If there's a match, update with new data, otherwise keep the existing data
+          return updatedRow ? { ...existingRow, ...updatedRow } : existingRow;
+        });
+
+        // Combine updated and new rows
+        return replaceDataInContactsFile([...updatedRows]);
+      })
+      .then(() => {
+        isUpdating = false; // Reset the flag to allow new updates
+        resolve(); // Resolve the promise for the current update
+        processQueue(); // Process the next item in the queue if there is one
+      })
+      .catch((error) => {
+        isUpdating = false; // Ensure flag is reset even on error
+        reject(error); // Reject the promise with the error
+        processQueue(); // Try to process the next item even if this one failed
+      });
+  }
 }
 
 function readCSV(filePath) {

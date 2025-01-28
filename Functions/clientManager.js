@@ -48,5 +48,6 @@ async function restartClient(clientId, clientObj) {
 
 module.exports = {
   initializeClients,
+  createClient,
   restartClient,
 };
