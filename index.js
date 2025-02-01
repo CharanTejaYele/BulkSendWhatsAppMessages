@@ -4,7 +4,7 @@ const { initializeClients } = require("./Functions/clientManager");
 const { selectOption, sendMessages } = require("./Functions/messageHandler");
 const config = require("./config");
 const { parseCSVAndProcessContacts } = require("./Functions/configHandler");
-const { createCounter } = require("./Functions/counter");
+const { createCounter } = require("./Functions/Counter");
 
 const incrementCounter = createCounter();
 
